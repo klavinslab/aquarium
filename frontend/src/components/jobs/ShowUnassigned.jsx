@@ -9,21 +9,16 @@ import AccordionDetails from '@material-ui/core/AccordionDetails';
 import ExpandLessIcon from '@material-ui/icons/ExpandLess';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 import { makeStyles } from '@material-ui/core';
+import Tooltip from '@material-ui/core/Tooltip';
 import globalUseSyles from '../../globalUseStyles';
 import jobsAPI from '../../helpers/api/jobsAPI';
 import Main from '../shared/layout/Main';
 import ShowJobOperations from './ShowJobOperations';
 
 const useStyles = makeStyles((theme) => ({
-  title: {
-    padding: theme.spacing(2),
-    borderBottom: '1px solid #DDD',
-    fontWeight: 'bold',
-
-    '& p': {
-      fontWeight: 'bold',
-      lineHeight: 1.75,
-    },
+  root: {
+    height: 'calc(100% - 64px)',
+    width: '100%',
   },
   accordion: {
     backgroundColor: theme.palette.action.selected,
@@ -40,7 +35,7 @@ const useStyles = makeStyles((theme) => ({
 }));
 
 const ShowUnassigned = (props) => {
-  const { cancelJob } = props;
+  const { cancelJob, removeOperation } = props;
   const classes = useStyles();
   const globalClasses = globalUseSyles();
 
@@ -50,12 +45,11 @@ const ShowUnassigned = (props) => {
   const init = async () => {
     const response = await jobsAPI.getUnassigned();
     if (!response) return;
-    const waitingJobs = response.jobs.filter((job) => job.pc === -1);
     const expandState = {};
     // eslint-disable-next-line no-return-assign
-    waitingJobs.forEach((job) => expandState[job.job_id] = { open: false });
+    await response.jobs.forEach((job) => expandState[job.job_id] = { open: false });
     setExpand(expandState);
-    setJobs(waitingJobs);
+    setJobs(response.jobs);
   };
 
   useEffect(() => {
@@ -64,7 +58,7 @@ const ShowUnassigned = (props) => {
 
   const handleCancel = async (jobId) => {
     await cancelJob(jobId);
-    init();
+    setJobs(jobs.filter((job) => job.job_id !== jobId));
   };
 
   const showOperations = async (jobId) => {
@@ -91,15 +85,21 @@ const ShowUnassigned = (props) => {
     open(jobId);
   };
 
+  // eslint-disable-next-line consistent-return
+  const handleRemoveOperation = async (jobId, opId) => {
+    await removeOperation(jobId, opId);
+    open(jobId);
+  };
+
   const title = () => (
     <div className={`${globalClasses.flexWrapper}`}>
-      <div className={`${globalClasses.flex} ${classes.title}`}>
+      <div className={`${globalClasses.flex} ${globalClasses.flexTitle}`}>
         <div className={`${globalClasses.flexCol1}`} />
         <div className={`${globalClasses.flexCol2}`}><Typography variant="body2">Protocol</Typography></div>
         <div className={`${globalClasses.flexCol1}`}><Typography variant="body2">Job</Typography></div>
         <div className={`${globalClasses.flexCol1}`}><Typography variant="body2">Operations</Typography></div>
         <div className={`${globalClasses.flexCol1}`}><Typography variant="body2">Created</Typography></div>
-        <div className={`${globalClasses.flexCol1}`}><Typography variant="body2" /></div>
+        <div className={`${globalClasses.flexCol1}`}><Typography variant="body2">Cancel</Typography></div>
       </div>
     </div>
   );
@@ -111,27 +111,30 @@ const ShowUnassigned = (props) => {
     return (
       jobs.map((job) => (
         <Accordion
-          expanded={expand[job.job_id].open}
+          expanded={expand[job.job_id] ? expand[job.job_id].open : false}
           key={job.id}
           TransitionProps={{ unmountOnExit: true }}
           classes={{
             expanded: classes.accordion,
           }}
           square
+          role="row"
         >
           <AccordionSummary
             aria-controls="job"
-            id={`job_${job.id}`}
+            id={`job_${job.job_id}`}
             classes={{
               root: classes.summary,
             }}
           >
             <div className={`${globalClasses.flexCol1}`}>
               <IconButton
-                aria-label="show operations"
+                aria-label={`expand job ${job.job_id}`}
                 onClick={() => toggleExpand(job.job_id)}
               >
-                {expand[job.job_id].open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                {expand[job.job_id].open
+                  ? <Tooltip title={`Collapse Job ${job.job_id}`}><ExpandLessIcon /></Tooltip>
+                  : <Tooltip title={`Expand Job ${job.job_id}`}><ExpandMoreIcon /></Tooltip>}
               </IconButton>
             </div>
             <div className={`${globalClasses.flexCol2}`}>
@@ -147,14 +150,22 @@ const ShowUnassigned = (props) => {
               <Typography variant="body2" noWrap>{job.created_at ? job.created_at.substring(0, 16).replace('T', ' ') : '-'}</Typography>
             </div>
             <div className={`${globalClasses.flexCol1}`}>
-              <IconButton aria-label="cancel job" onClick={() => { handleCancel(job.job_id); }}>
-                <CancelOutlinedIcon htmlColor="#FF0000" />
-              </IconButton>
+              {job.pc === -1 && (
+                <IconButton aria-label="cancel job" onClick={() => { handleCancel(job.job_id); }}>
+                  <CancelOutlinedIcon htmlColor="#FF0000" />
+                </IconButton>
+              )}
             </div>
           </AccordionSummary>
           <AccordionDetails classes={{ root: classes.details }}>
-            { !!expand[job.job_id].content &&
-              <ShowJobOperations operations={expand[job.job_id].content} />}
+            { !!expand[job.job_id].content && (
+              <ShowJobOperations
+                operations={expand[job.job_id].content}
+                removeOperation={handleRemoveOperation}
+                jobId={job.job_id}
+                handleCancelJob={handleCancel}
+              />
+            )}
           </AccordionDetails>
         </Accordion>
       ))
@@ -163,7 +174,7 @@ const ShowUnassigned = (props) => {
 
   return (
     <Main title={title()}>
-      <div role="grid" aria-label="unassigned-jobs" data-cy="unassigned-jobs">
+      <div className={`${globalClasses.flexWrapper} ${classes.root}`} role="grid" aria-label="unassigned-jobs" data-cy="unassigned-jobs">
         {rows()}
       </div>
     </Main>
@@ -172,6 +183,7 @@ const ShowUnassigned = (props) => {
 
 ShowUnassigned.propTypes = {
   cancelJob: func.isRequired,
+  removeOperation: func.isRequired,
 };
 
 export default ShowUnassigned;
